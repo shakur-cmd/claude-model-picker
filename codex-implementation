@@ -1,0 +1,67 @@
+---
+name: codex-implementation
+description: Ask Codex CLI (gpt-5.5) to implement scoped code changes in the current repository, then have Claude inspect the resulting diff and verification. This is how gpt-5.5 is invoked for implementation work. Use when the user asks Claude to delegate implementation to Codex or gpt-5.5, when the model-selection rubric routes the work to gpt-5.5, or when a bounded task would benefit from another coding agent producing a patch.
+---
+
+# Codex Implementation
+
+Use Codex as a separate implementation agent for bounded code changes. Claude
+remains responsible for scoping the task, reviewing the diff, running or
+checking verification, and explaining the final result.
+
+Use this when the user asks for Codex or delegation, or when a bounded task
+would benefit from a parallel implementation agent producing a patch. Do not
+let Codex commit, push, deploy, or edit global config unless the user
+explicitly asked for that.
+
+## Workflow
+
+1. Pin the current state with `git status --short` and note any user changes
+   already present.
+2. Write a self-contained prompt: the goal, acceptance criteria, files or
+   areas in scope, and anything explicitly out of scope.
+3. Run Codex with workspace write access, capturing its report.
+4. Diff the working tree against the pinned state and read every change.
+5. Run the project's verification (tests, typecheck, build) yourself.
+6. Report what changed, what you verified, and anything Codex did that you
+   reverted or would push back on.
+
+```bash
+ARTIFACT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-impl.XXXXXX")"
+REPORT="$ARTIFACT_DIR/report.md"
+PROMPT="$ARTIFACT_DIR/prompt.md"
+
+codex -C "$PWD" exec -s workspace-write - < "$PROMPT" > "$REPORT"
+```
+
+Codex runs can exceed ten minutes: pass an explicit long timeout, or run in
+the background and poll for the report file. Parallel Codex implementation
+agents must each work in their own git worktree so edits don't collide.
+
+## Prompting Codex
+
+Keep the prompt simple and concrete. Codex does what it is told and nothing
+more — it does not need the guardrails Claude needs. State the goal, the
+acceptance criteria, and the boundaries; skip persona and process talk.
+
+## Reporting Back
+
+Present the diff summary and verification results, not Codex's self-report.
+If Codex made no changes or failed, say so plainly and offer to implement
+directly instead.
+
+## Improving This Skill
+
+When this skill goes wrong — fired when it shouldn't, missed a trigger, a
+command failed, or the output confused anyone — diagnose the cause, draft the
+smallest change that prevents it, append it to this file, and tell the user
+what you changed and why.
+
+## Known Codex Blind Spots (append-only log)
+
+- 2026-07-07, Phoenix LiveView: Codex repeatedly omits `id` attributes on
+  empty-state divs inside `phx-update="stream"` containers, even when the
+  prompt warns about it (hit 4 of 6 tracks on anewu-platform). After any
+  LiveView work, run:
+  `grep -rn -B2 'only:block' lib/*_web/ | grep -v 'id='`
+  and add ids before running tests.
